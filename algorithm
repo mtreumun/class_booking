@@ -1,0 +1,137 @@
+// ============================================================================
+// AUTO-RESERVAS CROSSHERO — Unbroken Fitness
+// Pegar en la consola de https://crosshero.com/dashboard (dejar la pestaña abierta)
+// Ventana de caza: todos los viernes de 07:55 a 08:30, revisando cada 15 segundos
+// ============================================================================
+
+// --- Configuración de tus clases fijas ---
+const TARGETS = [
+  { label: 'Lunes - HYBRID SEMINARIO B 20:00',           programId: '682f392279e12218f2bf4825', time: '20:00', weekday: 1 },
+  { label: 'Martes - UPPER BODY STO TORIBIO FULL 19:00', programId: '6a0d9a9c8c8a501668600ad6', time: '19:00', weekday: 2 },
+  { label: 'Martes - METCON SANTO TORIBIO 20:00',        programId: '68306baf0d006b5229a22686', time: '20:00', weekday: 2 },
+  { label: 'Miércoles - HYBRID SEMINARIO B 20:00',       programId: '682f392279e12218f2bf4825', time: '20:00', weekday: 3 },
+  { label: 'Jueves - UPPER BODY STO TORIBIO FULL 19:00', programId: '6a0d9a9c8c8a501668600ad6', time: '19:00', weekday: 4 },
+  { label: 'Jueves - METCON SANTO TORIBIO 20:00',        programId: '68306baf0d006b5229a22686', time: '20:00', weekday: 4 },
+];
+
+// weekday: 0=Domingo, 1=Lunes ... 6=Sábado
+
+// --- Utilidades de fecha ---
+function nextWeekdayDate(weekday) {
+  const now = new Date();
+  const result = new Date(now);
+  let diff = (weekday - now.getDay() + 7) % 7;
+  if (diff === 0) diff = 7; // siempre la próxima semana, nunca "hoy"
+  result.setDate(now.getDate() + diff);
+  result.setHours(0, 0, 0, 0);
+  return result;
+}
+
+function fmt(date) {
+  const dd = String(date.getDate()).padStart(2, '0');
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const yyyy = date.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+// --- Busca el class_id real consultando la página de Clases (server-rendered) ---
+async function findClassId(programId, dateStr, timeLabel) {
+  const url = `/dashboard/classes?date=${encodeURIComponent(dateStr)}&program_id=${programId}`;
+  const res = await fetch(url);
+  const html = await res.text();
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const select = doc.querySelector('#class_reservation_single_class_id');
+  const tokenInput = doc.querySelector('input[name="authenticity_token"]');
+  if (!select || !tokenInput) return null;
+  const option = [...select.options].find(o => o.textContent.trim() === timeLabel);
+  if (!option || !option.value) return null;
+  return { classId: option.value, token: tokenInput.value };
+}
+
+// --- Envía la reserva ---
+async function reserve(classId, token) {
+  const body = new URLSearchParams({
+    authenticity_token: token,
+    redirect_to: '',
+    fullscreen: '',
+    'class_reservation[single_class_id]': classId,
+  });
+  const res = await fetch('/dashboard/class_reservations', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'X-Requested-With': 'XMLHttpRequest',
+    },
+    body: body.toString(),
+  });
+  const html = await res.text();
+  const success = html.includes('reservada con éxito');
+  const full = html.includes('Clase completa') || html.includes('lista de espera') || html.includes('Lista de espera');
+  return { success, full, status: res.status };
+}
+
+// --- Ventana de caza: de 07:55 a 08:30, revisando cada 15 segundos ---
+const POLL_MS = 15 * 1000;       // cada 15 segundos
+const HUNT_WINDOW_MS = 35 * 60 * 1000; // 07:55 -> 08:30 = 35 minutos
+
+// --- Caza una clase específica: pollea hasta encontrarla y reserva al instante ---
+async function huntAndReserve(target, { pollMs = POLL_MS, timeoutMs = HUNT_WINDOW_MS } = {}) {
+  const dateStr = fmt(nextWeekdayDate(target.weekday));
+  const deadline = Date.now() + timeoutMs;
+  console.log(`[${target.label}] buscando clase para ${dateStr}...`);
+
+  while (Date.now() < deadline) {
+    try {
+      const found = await findClassId(target.programId, dateStr, target.time);
+      if (found) {
+        console.log(`[${target.label}] class_id encontrado (${found.classId}), reservando ya...`);
+        const result = await reserve(found.classId, found.token);
+        if (result.success) {
+          console.log(`✅ [${target.label}] ¡Reservado! (${dateStr})`);
+          return true;
+        }
+        if (result.full) {
+          console.log(`⚠️ [${target.label}] Ya estaba completa / quedaste en lista de espera.`);
+          return false;
+        }
+        console.log(`❓ [${target.label}] Respuesta inesperada (status ${result.status}), reintentando...`);
+      }
+    } catch (e) {
+      console.log(`[${target.label}] error de red, reintentando:`, e.message);
+    }
+    await new Promise(r => setTimeout(r, pollMs));
+  }
+  console.log(`⏰ [${target.label}] Se acabó el tiempo sin poder reservar.`);
+  return false;
+}
+
+// --- Corre todas las cacerías en paralelo ---
+async function runAll() {
+  console.log('🚀 Iniciando caza de reservas —', new Date().toLocaleString());
+  await Promise.all(TARGETS.map(t => huntAndReserve(t)));
+  console.log('🏁 Terminado.');
+}
+
+// --- Se auto-programa para el próximo viernes 07:55:00, y se reprograma sola cada semana ---
+function scheduleNextFriday() {
+  const now = new Date();
+  const target = new Date(now);
+  const diff = (5 - now.getDay() + 7) % 7; // 5 = Viernes
+  target.setDate(now.getDate() + diff);
+  target.setHours(7, 55, 0, 0);
+  if (target <= now) target.setDate(target.getDate() + 7);
+
+  const ms = target - now;
+  console.log(`⏳ Próxima corrida programada: ${target.toLocaleString()} (en ${(ms / 1000 / 60).toFixed(1)} min). Ventana de caza: 07:55–08:30, cada 15s.`);
+
+  setTimeout(async () => {
+    await runAll();
+    scheduleNextFriday(); // se reprograma para el viernes siguiente si la pestaña sigue abierta
+  }, ms);
+}
+
+// === ARRANQUE ===
+scheduleNextFriday();
+
+// Para probar el mecanismo AHORA MISMO sin esperar al viernes, ejecutá:
+// runAll();
