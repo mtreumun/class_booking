@@ -1,0 +1,46 @@
+# CrossHero — Unbroken Fitness — IDs de Programas
+
+Extraídos desde `/dashboard/classes` (dropdown "Programa"). Usar como referencia para armar
+más targets en `crosshero_auto_reservas.js`.
+
+| Programa | program_id |
+|---|---|
+| BODYBUILDING 1ER PISO | `683077a1276994e81fb9cb2c` |
+| BODYBUILDING 2DO PISO | `6830778980d7cde77e4fc6cd` |
+| CFA Lista | `6a62c093de35d3e86d5fe6b6` |
+| CROSSFIT SANTO TORIBIO | `6821f0ea8e1685a75d9d6336` |
+| CROSSFIT SEMINARIO A | `68306bf7199f44a7b4be2f53` |
+| CROSSFIT SEMINARIO A FULL/VALLE | `682f37b6a98f0a1aba4177a0` |
+| CROSSFIT SEMINARIO B | `682f3745682a1657e020653b` |
+| CROSSFIT SEMINARIO B FULL/VALLE | `682f38af2ba88974b5cbb434` |
+| GAP SANTO TORIBIO | `682f37f62ba88974b5cbb327` |
+| GAP SANTO TORIBIO FULL/VALLE | `682f3783b5c1549088ac8c79` |
+| HYBRID SEMINARIO A FULL/VALLE | `69b43ca47d61b6b69745f13e` |
+| **HYBRID SEMINARIO B** | `682f392279e12218f2bf4825` |
+| HYBRID SEMINARIO B FULL/VALLE | `682f393d853d5b499ddd59ae` |
+| METCON PERFORMANCE SEMINARIO B | `68306c4c199f44a7b4be2fce` |
+| **METCON SANTO TORIBIO** | `68306baf0d006b5229a22686` |
+| METCON SANTO TORIBIO FULL/VALLE | `68306bcb7b6a44ca5317850e` |
+| METCON SEMINARIO A | `68306c160d006b5229a226fd` |
+| METCON SEMINARIO A FULL/VALLE | `68221dcb5d954b896f1ab26f` |
+| METCON SEMINARIO B | `682f37d7a98f0a1aba4177ce` |
+| METCON SEMINARIO B FULL/VALLE | `682f396579e12218f2bf4865` |
+| OLY SEMINARIO A | `6823f563da6bec3f2e9c2227` |
+| PFT HYROX SEMINARIO B | `688cc30c970521b36f574083` |
+| STRENGHT SEMINARIO A FULL/VALLE | `6917b1434f8eb61ed5992980` |
+| STRENGHT SEMINARIO B | `691b51c66f2b30c873af0c00` |
+| **UPPER BODY STO TORIBIO FULL** | `6a0d9a9c8c8a501668600ad6` |
+| UPPER BODY STO TORIBIO FULL/VALLE | `682f38f6682a1657e020682f` |
+
+**En negrita**: los 3 que ya usa `crosshero_auto_reservas.js`.
+
+## Cómo se obtuvieron
+```js
+const res = await fetch('/dashboard/classes');
+const html = await res.text();
+const doc = new DOMParser().parseFromString(html, 'text/html');
+const select = doc.querySelector('select[name="program_id"]');
+[...select.options].filter(o => o.value).map(o => ({value:o.value, text:o.textContent.trim()}));
+```
+Pegar y ejecutar en la consola de `https://crosshero.com/dashboard` (logueado) si en algún
+momento agregan/quitan programas y hay que refrescar esta tabla.
