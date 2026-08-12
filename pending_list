@@ -1,0 +1,111 @@
+// ============================================================================
+// CAZADOR DE CUPOS — Lista de espera CrossHero — Unbroken Fitness
+// Pegar en la consola de https://crosshero.com/dashboard (dejar la pestaña abierta)
+//
+// A diferencia de crosshero_auto_reservas.js (que caza el horario semanal fijo
+// los viernes 07:55-08:30), este script vigila clases PUNTUALES en las que ya
+// estás anotado en lista de espera, y reintenta la reserva sin parar hasta que
+// se libere un cupo o hasta que cierren las reservas (1 min antes del inicio).
+// ============================================================================
+
+const WAITLIST_POLL_MS = 15 * 1000; // cada 15 segundos (ajustable)
+
+// --- Clases puntuales en las que estás en lista de espera ---
+// dateStr formato DD/MM/YYYY. classStart = fecha y hora exacta de inicio de la clase.
+const WAITLIST_TARGETS = [
+  {
+    label: 'Lunes 10/08 - HYBRID SEMINARIO B 20:00',
+    programId: '682f392279e12218f2bf4825',
+    dateStr: '10/08/2026',
+    time: '20:00',
+    classStart: new Date('2026-08-10T20:00:00'),
+  },
+  // Agregá más objetos acá para otras clases en lista de espera:
+  // {
+  //   label: 'Martes 11/08 - METCON SANTO TORIBIO 20:00',
+  //   programId: '68306baf0d006b5229a22686',
+  //   dateStr: '11/08/2026',
+  //   time: '20:00',
+  //   classStart: new Date('2026-08-11T20:00:00'),
+  // },
+];
+
+// --- Reutilizamos exactamente la misma lógica de búsqueda y reserva ---
+async function findClassId(programId, dateStr, timeLabel) {
+  const url = `/dashboard/classes?date=${encodeURIComponent(dateStr)}&program_id=${programId}`;
+  const res = await fetch(url);
+  const html = await res.text();
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const select = doc.querySelector('#class_reservation_single_class_id');
+  const tokenInput = doc.querySelector('input[name="authenticity_token"]');
+  if (!select || !tokenInput) return null;
+  const option = [...select.options].find(o => o.textContent.trim() === timeLabel);
+  if (!option || !option.value) return null;
+  return { classId: option.value, token: tokenInput.value };
+}
+
+async function reserve(classId, token) {
+  const body = new URLSearchParams({
+    authenticity_token: token,
+    redirect_to: '',
+    fullscreen: '',
+    'class_reservation[single_class_id]': classId,
+  });
+  const res = await fetch('/dashboard/class_reservations', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'X-Requested-With': 'XMLHttpRequest',
+    },
+    body: body.toString(),
+  });
+  const html = await res.text();
+  const success = html.includes('reservada con éxito');
+  const full = html.includes('Clase completa') || html.includes('lista de espera') || html.includes('Lista de espera');
+  const closed = html.includes('Reservas cerradas') || html.includes('reservas cerradas');
+  return { success, full, closed, status: res.status };
+}
+
+// --- Vigila UNA clase puntual hasta que se libere un cupo o cierren las reservas ---
+async function watchWaitlist(target) {
+  console.log(`👀 [${target.label}] vigilando lista de espera...`);
+  // dejamos de intentar 1 minuto antes del inicio (las reservas cierran ahí igual)
+  const deadline = target.classStart.getTime() - 60 * 1000;
+
+  while (Date.now() < deadline) {
+    try {
+      const found = await findClassId(target.programId, target.dateStr, target.time);
+      if (found) {
+        const result = await reserve(found.classId, found.token);
+        if (result.success) {
+          console.log(`✅ [${target.label}] ¡Se liberó un cupo y quedaste dentro!`);
+          return true;
+        }
+        if (result.closed) {
+          console.log(`⏰ [${target.label}] Las reservas ya cerraron.`);
+          return false;
+        }
+        if (result.full) {
+          // sigue completa, no hay novedad, seguimos esperando en silencio
+        } else {
+          console.log(`❓ [${target.label}] Respuesta inesperada (status ${result.status}).`);
+        }
+      }
+    } catch (e) {
+      console.log(`[${target.label}] error de red, reintentando:`, e.message);
+    }
+    await new Promise(r => setTimeout(r, WAITLIST_POLL_MS));
+  }
+  console.log(`⏰ [${target.label}] Se acabó el tiempo (llegó la hora de la clase) sin liberarse un cupo.`);
+  return false;
+}
+
+// --- Vigila todas las clases en paralelo ---
+async function watchAllWaitlists() {
+  console.log('🚀 Empezando a vigilar listas de espera —', new Date().toLocaleString());
+  await Promise.all(WAITLIST_TARGETS.map(t => watchWaitlist(t)));
+  console.log('🏁 Terminado.');
+}
+
+// === ARRANQUE INMEDIATO (no espera a ningún horario programado) ===
+watchAllWaitlists();
