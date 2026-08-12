@@ -14,11 +14,11 @@ const WAITLIST_POLL_MS = 15 * 1000; // cada 15 segundos (ajustable)
 // dateStr formato DD/MM/YYYY. classStart = fecha y hora exacta de inicio de la clase.
 const WAITLIST_TARGETS = [
   {
-    label: 'Lunes 10/08 - HYBRID SEMINARIO B 20:00',
+    label: 'Viernes 14/08 - HYBRID SEMINARIO B 18:00',
     programId: '682f392279e12218f2bf4825',
-    dateStr: '10/08/2026',
-    time: '20:00',
-    classStart: new Date('2026-08-10T20:00:00'),
+    dateStr: '14/08/2026',
+    time: '18:00',
+    classStart: new Date('2026-08-14T18:00:00'),
   },
   // Agregá más objetos acá para otras clases en lista de espera:
   // {
