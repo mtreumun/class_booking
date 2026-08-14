@@ -1,7 +1,7 @@
 // ============================================================================
 // AUTO-RESERVAS CROSSHERO — Unbroken Fitness
 // Pegar en la consola de https://crosshero.com/dashboard (dejar la pestaña abierta)
-// Ventana de caza: todos los viernes de 07:55 a 08:30, revisando cada 15 segundos
+// Ventana de caza: todos los viernes de 07:50 a 08:30, revisando cada 15 segundos
 // ============================================================================
 
 // --- Configuración de tus clases fijas ---
@@ -37,7 +37,7 @@ function fmt(date) {
 // --- Busca el class_id real consultando la página de Clases (server-rendered) ---
 async function findClassId(programId, dateStr, timeLabel) {
   const url = `/dashboard/classes?date=${encodeURIComponent(dateStr)}&program_id=${programId}`;
-  const res = await fetch(url);
+  const res = await fetch(url, { cache: 'no-store' });
   const html = await res.text();
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const select = doc.querySelector('#class_reservation_single_class_id');
@@ -70,9 +70,20 @@ async function reserve(classId, token) {
   return { success, full, status: res.status };
 }
 
-// --- Ventana de caza: de 07:55 a 08:30, revisando cada 15 segundos ---
+// --- Ventana de caza: de 07:50 a 08:30, revisando cada 15 segundos ---
 const POLL_MS = 15 * 1000;       // cada 15 segundos
-const HUNT_WINDOW_MS = 35 * 60 * 1000; // 07:55 -> 08:30 = 35 minutos
+const HUNT_WINDOW_MS = 40 * 60 * 1000; // 07:50 -> 08:30 = 40 minutos
+
+// --- Control de detención manual (sin necesidad de recargar la pestaña) ---
+window.__crossheroStop = false;
+function stopHunt() {
+  window.__crossheroStop = true;
+  console.log('🛑 Señal de detención enviada. Los ciclos en curso van a frenar en su próximo chequeo (máx. 15s).');
+}
+function resumeHunt() {
+  window.__crossheroStop = false;
+  console.log('▶️ Señal de detención removida. Los próximos runAll()/scheduleNextFriday() van a correr normalmente.');
+}
 
 // --- Caza una clase específica: pollea hasta encontrarla y reserva al instante ---
 async function huntAndReserve(target, { pollMs = POLL_MS, timeoutMs = HUNT_WINDOW_MS } = {}) {
@@ -81,6 +92,10 @@ async function huntAndReserve(target, { pollMs = POLL_MS, timeoutMs = HUNT_WINDO
   console.log(`[${target.label}] buscando clase para ${dateStr}...`);
 
   while (Date.now() < deadline) {
+    if (window.__crossheroStop) {
+      console.log(`🛑 [${target.label}] detenido manualmente.`);
+      return false;
+    }
     try {
       const found = await findClassId(target.programId, dateStr, target.time);
       if (found) {
@@ -95,6 +110,8 @@ async function huntAndReserve(target, { pollMs = POLL_MS, timeoutMs = HUNT_WINDO
           return false;
         }
         console.log(`❓ [${target.label}] Respuesta inesperada (status ${result.status}), reintentando...`);
+      } else {
+        console.log(`⏳ [${target.label}] todavía no publican el horario (chequeado ${new Date().toLocaleTimeString()}), reintento en ${pollMs / 1000}s...`);
       }
     } catch (e) {
       console.log(`[${target.label}] error de red, reintentando:`, e.message);
@@ -112,20 +129,24 @@ async function runAll() {
   console.log('🏁 Terminado.');
 }
 
-// --- Se auto-programa para el próximo viernes 07:55:00, y se reprograma sola cada semana ---
+// --- Se auto-programa para el próximo viernes 07:50:00, y se reprograma sola cada semana ---
 function scheduleNextFriday() {
   const now = new Date();
   const target = new Date(now);
   const diff = (5 - now.getDay() + 7) % 7; // 5 = Viernes
   target.setDate(now.getDate() + diff);
-  target.setHours(7, 55, 0, 0);
+  target.setHours(7, 50, 0, 0);
   if (target <= now) target.setDate(target.getDate() + 7);
 
   const ms = target - now;
-  console.log(`⏳ Próxima corrida programada: ${target.toLocaleString()} (en ${(ms / 1000 / 60).toFixed(1)} min). Ventana de caza: 07:55–08:30, cada 15s.`);
+  console.log(`⏳ Próxima corrida programada: ${target.toLocaleString()} (en ${(ms / 1000 / 60).toFixed(1)} min). Ventana de caza: 07:50–08:30, cada 15s.`);
 
   setTimeout(async () => {
-    await runAll();
+    if (!window.__crossheroStop) {
+      await runAll();
+    } else {
+      console.log('🛑 Corrida del viernes omitida (detención manual activa).');
+    }
     scheduleNextFriday(); // se reprograma para el viernes siguiente si la pestaña sigue abierta
   }, ms);
 }
