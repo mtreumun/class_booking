@@ -33,7 +33,7 @@ const WAITLIST_TARGETS = [
 // --- Reutilizamos exactamente la misma lógica de búsqueda y reserva ---
 async function findClassId(programId, dateStr, timeLabel) {
   const url = `/dashboard/classes?date=${encodeURIComponent(dateStr)}&program_id=${programId}`;
-  const res = await fetch(url);
+  const res = await fetch(url, { cache: 'no-store' });
   const html = await res.text();
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const select = doc.querySelector('#class_reservation_single_class_id');
@@ -66,6 +66,17 @@ async function reserve(classId, token) {
   return { success, full, closed, status: res.status };
 }
 
+// --- Control de detención manual (sin necesidad de recargar la pestaña) ---
+window.__crossheroStop = false;
+function stopHunt() {
+  window.__crossheroStop = true;
+  console.log('🛑 Señal de detención enviada. Los ciclos en curso van a frenar en su próximo chequeo (máx. 15s).');
+}
+function resumeHunt() {
+  window.__crossheroStop = false;
+  console.log('▶️ Señal de detención removida.');
+}
+
 // --- Vigila UNA clase puntual hasta que se libere un cupo o cierren las reservas ---
 async function watchWaitlist(target) {
   console.log(`👀 [${target.label}] vigilando lista de espera...`);
@@ -73,6 +84,10 @@ async function watchWaitlist(target) {
   const deadline = target.classStart.getTime() - 60 * 1000;
 
   while (Date.now() < deadline) {
+    if (window.__crossheroStop) {
+      console.log(`🛑 [${target.label}] detenido manualmente.`);
+      return false;
+    }
     try {
       const found = await findClassId(target.programId, target.dateStr, target.time);
       if (found) {
@@ -86,7 +101,7 @@ async function watchWaitlist(target) {
           return false;
         }
         if (result.full) {
-          // sigue completa, no hay novedad, seguimos esperando en silencio
+          console.log(`⏳ [${target.label}] sigue completa (chequeado ${new Date().toLocaleTimeString()}), próximo chequeo en ${WAITLIST_POLL_MS / 1000}s...`);
         } else {
           console.log(`❓ [${target.label}] Respuesta inesperada (status ${result.status}).`);
         }
